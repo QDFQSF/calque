@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Calque</title>
+<meta name="theme-color" content="#16140f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+/* Viseur plein écran : la feuille filmée occupe tout, les réglages restent sous le pouce. */
+:root {
+  color-scheme: dark;
+  --ink: #16140f;
+  --glass: rgba(22, 20, 15, .86);
+  --line: rgba(255, 250, 235, .16);
+  --text: #f6f2e6;
+  --muted: #b9b3a2;
+  --pencil: #f4c430;
+  --on-pencil: #1c1703;
+  --danger: #ffb4a8;
+  --rec: #ff4d3d;
+  --font: ui-rounded, "SF Pro Rounded", "Segoe UI", Roboto, system-ui, sans-serif;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); color: var(--text); font: 15px/1.35 var(--font); overscroll-behavior: none; -webkit-user-select: none; user-select: none; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; touch-action: manipulation; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--pencil); outline-offset: 2px; }
+svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+#stage { position: fixed; inset: 0; overflow: hidden; touch-action: none; background: #fbfaf5; }
+#cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+#layer { position: absolute; left: 50%; top: 50%; transform-origin: center; pointer-events: none; will-change: transform; }
+
+.bar { position: fixed; z-index: 3; display: flex; gap: 8px; align-items: center; }
+#top { top: calc(env(safe-area-inset-top, 0px) + 10px); left: max(12px, env(safe-area-inset-left, 0px)); right: max(12px, env(safe-area-inset-right, 0px)); justify-content: space-between; }
+.pill { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 22px; background: var(--glass); border: 1px solid var(--line); font-weight: 600; white-space: nowrap; }
+.pill.primary { background: var(--pencil); color: var(--on-pencil); border-color: transparent; }
+
+#panel { position: fixed; z-index: 3; left: 50%; bottom: 0; transform: translateX(-50%); width: min(100%, 460px); max-height: 70%; overflow-y: auto; padding: 6px max(14px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 12px) max(14px, env(safe-area-inset-left, 0px)); background: var(--glass); border: 1px solid var(--line); border-bottom: 0; border-radius: 18px 18px 0 0; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); display: grid; gap: 10px; }
+#fold { display: flex; justify-content: center; width: 100%; height: 26px; align-items: center; color: var(--muted); }
+#fold svg { transition: transform .15s; }
+#panel.folded #fold svg { transform: rotate(180deg); }
+
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 3px; border-radius: 12px; background: rgba(255, 250, 235, .08); }
+.seg button { min-height: 40px; border-radius: 9px; font-weight: 600; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--text); color: var(--ink); }
+
+.row { display: grid; grid-template-columns: 76px 1fr 40px; gap: 10px; align-items: center; min-height: 36px; }
+.row label { color: var(--muted); }
+.row output { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; }
+input[type=range] { width: 100%; height: 36px; margin: 0; background: none; accent-color: var(--pencil); touch-action: pan-x; }
+
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px; border-radius: 20px; border: 1px solid var(--line); font-weight: 600; font-size: 14px; }
+.chip[aria-pressed="true"] { background: var(--pencil); color: var(--on-pencil); border-color: transparent; }
+.inks { display: flex; gap: 6px; margin-right: 4px; }
+.ink { width: 32px; height: 32px; border-radius: 50%; border: 2px solid rgba(255, 250, 235, .35); background: var(--c); }
+.ink[aria-pressed="true"] { outline: 2px solid var(--pencil); outline-offset: 2px; border-color: transparent; }
+
+#drawbar { left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); width: min(calc(100% - 24px), 460px); padding: 8px; background: var(--glass); border: 1px solid var(--line); border-radius: 20px; flex-direction: column; align-items: stretch; }
+#drawbar .line { display: flex; gap: 8px; }
+#drawbar .pill { flex: 1; }
+#drawbar .row { grid-template-columns: 62px 1fr 40px; padding: 0 6px; }
+#peek { touch-action: none; }
+
+#notice { position: fixed; z-index: 4; top: calc(env(safe-area-inset-top, 0px) + 64px); left: 12px; right: 12px; max-width: 460px; margin: auto; padding: 12px 14px; display: grid; gap: 10px; border-radius: 14px; background: var(--ink); border: 1px solid var(--danger); }
+#notice p { margin: 0; }
+#notice .pill { justify-self: start; }
+#toast { position: fixed; z-index: 4; top: calc(env(safe-area-inset-top, 0px) + 64px); left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 8px 14px; border-radius: 18px; background: var(--ink); border: 1px solid var(--line); text-align: center; }
+.dot { width: 16px; height: 16px; border-radius: 50%; background: var(--rec); flex: none; }
+.recording .dot { border-radius: 3px; }
+.chip.recording { border-color: var(--rec); }
+#recB { flex: 0 0 auto; min-width: 50px; padding: 0 16px; }
+#recB.recording { border-color: var(--rec); }
+#recBadge { position: fixed; z-index: 3; top: calc(env(safe-area-inset-top, 0px) + 64px); left: max(12px, env(safe-area-inset-left, 0px)); display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 16px; background: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+#recBadge .dot { width: 10px; height: 10px; }
+
+#clip { position: fixed; z-index: 5; inset: 0; display: flex; flex-direction: column; gap: 10px; padding: calc(env(safe-area-inset-top, 0px) + 12px) max(14px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 14px) max(14px, env(safe-area-inset-left, 0px)); background: var(--ink); }
+#clip h2 { margin: 0; font-size: 18px; }
+#clipInfo { margin: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+#clipVideo { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #000; border-radius: 10px; }
+#clipRates { grid-template-columns: repeat(4, 1fr); }
+#clip .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#clip .actions .pill { flex: 1 1 auto; }
+#clipDiscard[data-armed="true"] { border-color: var(--danger); color: var(--danger); }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-img" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m4 18 5-5 3.5 3.5L16 13l4 4"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1"/><path d="M9.3 4v16M14.7 4v16M4 9.3h16M4 14.7h16"/></symbol>
+  <symbol id="i-flip" viewBox="0 0 24 24"><path d="M12 3v18M8 7 3 17h5V7ZM16 7l5 10h-5V7Z"/></symbol>
+  <symbol id="i-center" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/></symbol>
+  <symbol id="i-torch" viewBox="0 0 24 24"><path d="M13 2 5 14h6l-1 8 8-12h-6l1-8Z"/></symbol>
+</svg>
+
+<main id="stage">
+  <video id="cam" autoplay playsinline muted></video>
+  <canvas id="layer" aria-label="Calque de ton image"></canvas>
+</main>
+
+<div class="bar" id="top">
+  <button class="pill primary" id="pick"><svg class="i"><use href="#i-img"/></svg>Choisir une image</button>
+  <button class="pill" id="lock"><svg class="i"><use href="#i-lock"/></svg>Verrouiller</button>
+</div>
+
+<section id="panel" aria-label="Réglages du calque">
+  <button id="fold" aria-label="Replier ou déplier les réglages"><svg class="i"><use href="#i-down"/></svg></button>
+  <div class="seg" role="group" aria-label="Type de calque">
+    <button data-mode="contours">Contours</button>
+    <button data-mode="tons">Valeurs</button>
+    <button data-mode="photo">Photo</button>
+  </div>
+  <div class="row">
+    <label for="opacity">Opacité</label>
+    <input type="range" id="opacity" min="5" max="100" step="1">
+    <output id="opacityOut"></output>
+  </div>
+  <div class="more" style="display:grid;gap:10px">
+    <div class="row" id="detailRow">
+      <label for="detail">Détail</label>
+      <input type="range" id="detail" min="0" max="100" step="1">
+      <output id="detailOut"></output>
+    </div>
+    <div class="row" id="tonesRow">
+      <label for="tones">Tons</label>
+      <input type="range" id="tones" min="2" max="6" step="1">
+      <output id="tonesOut"></output>
+    </div>
+    <div class="row" id="zoomRow" hidden>
+      <label for="zoom">Zoom caméra</label>
+      <input type="range" id="zoom">
+      <output id="zoomOut"></output>
+    </div>
+    <div class="tools">
+      <div class="inks" id="inks" role="group" aria-label="Couleur du calque">
+        <button class="ink" style="--c:#1557ff" data-ink="#1557ff" aria-label="Bleu"></button>
+        <button class="ink" style="--c:#e5233b" data-ink="#e5233b" aria-label="Rouge"></button>
+        <button class="ink" style="--c:#111111" data-ink="#111111" aria-label="Noir"></button>
+        <button class="ink" style="--c:#ffffff" data-ink="#ffffff" aria-label="Blanc, pour papier sombre"></button>
+      </div>
+      <button class="chip" id="recA"><span class="dot"></span><span id="recALabel">Filmer</span></button>
+      <button class="chip" id="grid"><svg class="i"><use href="#i-grid"/></svg>Carreaux</button>
+      <button class="chip" id="flip"><svg class="i"><use href="#i-flip"/></svg>Miroir</button>
+      <button class="chip" id="center"><svg class="i"><use href="#i-center"/></svg>Recentrer</button>
+      <button class="chip" id="torch" hidden><svg class="i"><use href="#i-torch"/></svg>Lampe</button>
+    </div>
+  </div>
+</section>
+
+<div class="bar" id="drawbar" hidden>
+  <div class="row">
+    <label for="opacity2">Opacité</label>
+    <input type="range" id="opacity2" min="5" max="100" step="1">
+    <output id="opacity2Out"></output>
+  </div>
+  <div class="line">
+    <button class="pill" id="peek"><svg class="i"><use href="#i-eye"/></svg>Maintenir : ma feuille</button>
+    <button class="pill" id="recB" aria-label="Filmer ma feuille"><span class="dot"></span></button>
+    <button class="pill" id="unlock" style="flex:0 0 auto" aria-label="Déverrouiller"><svg class="i"><use href="#i-unlock"/></svg></button>
+  </div>
+</div>
+
+<div id="recBadge" role="status" hidden><span class="dot"></span><span id="recTime">0:00</span></div>
+
+<section id="clip" aria-label="Ta vidéo" hidden>
+  <h2>Ta séance, sans le calque</h2>
+  <p id="clipInfo"></p>
+  <video id="clipVideo" controls playsinline></video>
+  <div class="seg" id="clipRates" role="group" aria-label="Vitesse de lecture">
+    <button data-rate="1">x1</button>
+    <button data-rate="2">x2</button>
+    <button data-rate="4">x4</button>
+    <button data-rate="8">x8</button>
+  </div>
+  <div class="actions">
+    <button class="pill primary" id="clipSave">Enregistrer la vidéo</button>
+    <button class="pill" id="clipShare" hidden>Partager</button>
+    <button class="pill" id="clipDiscard">Supprimer</button>
+  </div>
+</section>
+
+<div id="notice" role="alert" hidden>
+  <p id="noticeText"></p>
+  <button class="pill" id="retry">Réessayer la caméra</button>
+</div>
+<div id="toast" role="status" hidden></div>
+<input type="file" id="file" accept="image/*" hidden>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const stage = $('stage'), cam = $('cam'), layer = $('layer');
+const ctx = layer.getContext('2d', { willReadFrequently: true });
+const MAX_SIDE = 1400;
+
+/* ---------- État conservé entre deux séances ---------- */
+const S = { mode: 'contours', opacity: 70, detail: 55, tones: 4, ink: '#1557ff', grid: false, flip: false, x: 0, y: 0, scale: 0, rot: 0 };
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } },
+  del(k) { try { localStorage.removeItem(k); } catch {} }
+};
+try { Object.assign(S, JSON.parse(store.get('calque.state') || '{}')); } catch {}
+const save = () => store.set('calque.state', JSON.stringify(S));
+
+/* ---------- Dessin d'exemple, ouvert tant qu'aucune image n'est choisie ---------- */
+const SAMPLE = 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1000" width="800" height="1000">
+<rect width="800" height="1000" fill="#fff"/>
+<g fill="none" stroke="#111" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+<path d="M330 250c-20-40 25-60 5-105M410 240c-20-45 25-65 5-115M490 250c-20-40 25-60 5-105"/>
+<ellipse cx="400" cy="340" rx="210" ry="52" fill="#d9d9d9"/>
+<ellipse cx="400" cy="345" rx="172" ry="32" fill="#6f4a2f"/>
+<path d="M190 340v290c0 75 90 120 210 120s210-45 210-120V340" fill="#f2f2f2"/>
+<path d="M500 400v320c60-14 110-45 110-90V340c0 25-45 48-110 60Z" fill="#a9a9a9"/>
+<path d="M610 420c110-25 150 40 130 110-18 62-75 95-130 95M610 470c65-18 90 20 78 62-11 38-42 52-78 55"/>
+<path d="M255 455c35 18 80 10 95-10-5 50-40 90-48 120-24-35-60-65-47-110Z" fill="#555"/>
+<ellipse cx="400" cy="785" rx="290" ry="62" fill="#c9c9c9"/>
+<path d="M190 630c0 75 90 120 210 120s210-45 210-120"/>
+</g></svg>`);
+
+/* ---------- Image source et calculs de base ---------- */
+let W = 0, H = 0, source = null, gray = null, fine = null, wide = null;
+
+function boxBlur(input, w, h, r, passes = 2) {
+  let a = Float32Array.from(input), b = new Float32Array(a.length);
+  const norm = 1 / (2 * r + 1);
+  for (let p = 0; p < passes; p++) {
+    for (let y = 0; y < h; y++) {
+      const o = y * w;
+      let sum = a[o] * (r + 1);
+      for (let i = 1; i <= r; i++) sum += a[o + Math.min(i, w - 1)];
+      for (let x = 0; x < w; x++) {
+        b[o + x] = sum * norm;
+        sum += a[o + Math.min(x + r + 1, w - 1)] - a[o + Math.max(x - r, 0)];
+      }
+    }
+    for (let x = 0; x < w; x++) {
+      let sum = b[x] * (r + 1);
+      for (let i = 1; i <= r; i++) sum += b[x + Math.min(i, h - 1) * w];
+      for (let y = 0; y < h; y++) {
+        a[x + y * w] = sum * norm;
+        sum += b[x + Math.min(y + r + 1, h - 1) * w] - b[x + Math.max(y - r, 0) * w];
+      }
+    }
+  }
+  return a;
+}
+
+function prepare(img) {
+  const k = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth || 800, img.naturalHeight || 1000));
+  W = Math.max(1, Math.round((img.naturalWidth || 800) * k));
+  H = Math.max(1, Math.round((img.naturalHeight || 1000) * k));
+  source = document.createElement('canvas');
+  source.width = W; source.height = H;
+  const c = source.getContext('2d', { willReadFrequently: true });
+  c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);
+  c.drawImage(img, 0, 0, W, H);
+  const px = c.getImageData(0, 0, W, H).data;
+
+  // Niveaux de gris, avec contraste étiré pour que les photos ternes donnent de vrais traits.
+  gray = new Float32Array(W * H);
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < gray.length; i++) {
+    const v = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
+    gray[i] = v; hist[v | 0]++;
+  }
+  let lo = 0, hi = 255, acc = 0;
+  const cut = gray.length * 0.01;
+  for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc > cut) { lo = i; break; } }
+  acc = 0;
+  for (let i = 255; i >= 0; i--) { acc += hist[i]; if (acc > cut) { hi = i; break; } }
+  const span = Math.max(1, hi - lo);
+  for (let i = 0; i < gray.length; i++) gray[i] = Math.min(255, Math.max(0, (gray[i] - lo) * 255 / span));
+
+  const u = Math.max(W, H) / 1000;
+  fine = boxBlur(gray, W, H, Math.max(1, Math.round(u)));
+  wide = boxBlur(gray, W, H, Math.max(2, Math.round(2.6 * u)));
+  layer.width = W; layer.height = H;
+}
+
+/* ---------- Génération du calque ---------- */
+function paint() {
+  if (!source) return;
+  if (S.mode === 'photo') {
+    ctx.clearRect(0, 0, W, H);
+    ctx.drawImage(source, 0, 0);
+  } else {
+    const out = ctx.createImageData(W, H), d = out.data;
+    const n = parseInt(S.ink.slice(1), 16), R = n >> 16, G = (n >> 8) & 255, B = n & 255;
+    if (S.mode === 'contours') {
+      // Différence de deux flous : ressort les traits sombres, ignore les aplats.
+      const t = 16 - 14.5 * (S.detail / 100), t2 = t * 1.7;
+      for (let i = 0, j = 0; i < gray.length; i++, j += 4) {
+        const a = (wide[i] - fine[i] - t) / (t2 - t);
+        d[j] = R; d[j + 1] = G; d[j + 2] = B;
+        d[j + 3] = a <= 0 ? 0 : a >= 1 ? 255 : a * 255;
+      }
+    } else {
+      // Valeurs : quelques tons francs, le plus clair reste le papier.
+      const steps = S.tones - 1;
+      for (let i = 0, j = 0; i < gray.length; i++, j += 4) {
+        const level = Math.round(fine[i] / 255 * steps) / steps;
+        d[j] = R; d[j + 1] = G; d[j + 2] = B;
+        d[j + 3] = (1 - level) * 235;
+      }
+    }
+    ctx.putImageData(out, 0, 0);
+  }
+  if (S.grid) {
+    const cell = Math.min(W, H) / 6;
+    ctx.beginPath();
+    for (let x = cell; x < W; x += cell) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+    for (let y = cell; y < H; y += cell) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+    ctx.rect(0, 0, W, H);
+    ctx.strokeStyle = S.ink === '#e5233b' ? '#1557ff' : '#e5233b';
+    ctx.lineWidth = Math.max(1, Math.max(W, H) / 700);
+    ctx.stroke();
+  }
+}
+let paintQueued = false;
+function queuePaint() {
+  if (paintQueued) return;
+  paintQueued = true;
+  requestAnimationFrame(() => { paintQueued = false; paint(); });
+}
+
+/* ---------- Position du calque ---------- */
+function place() {
+  const sx = S.flip ? -S.scale : S.scale;
+  layer.style.transform = `translate(-50%,-50%) translate(${S.x}px,${S.y}px) rotate(${S.rot}rad) scale(${sx},${S.scale})`;
+}
+function fit() {
+  S.x = 0; S.y = 0; S.rot = 0;
+  S.scale = Math.min(innerWidth / W, innerHeight / H) * 0.92;
+  place();
+}
+
+async function loadImage(url, { keepPlace = false, persist = false } = {}) {
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  prepare(img);
+  if (!keepPlace || !S.scale) fit(); else place();
+  paint();
+  if (persist) {
+    const ok = store.set('calque.image', source.toDataURL('image/jpeg', 0.88));
+    if (!ok) store.del('calque.image');
+  }
+  save();
+}
+
+$('pick').onclick = () => $('file').click();
+$('file').onchange = async e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  const url = URL.createObjectURL(f);
+  try {
+    await loadImage(url, { persist: true });
+    toast('Image chargée. Place-la avec tes doigts, puis verrouille.');
+  } catch {
+    toast("Ce fichier ne s'ouvre pas. Essaie un JPG ou un PNG.");
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+};
+
+/* ---------- Gestes : un doigt déplace, deux doigts zooment et tournent ---------- */
+const fingers = new Map();
+let locked = false;
+stage.addEventListener('pointerdown', e => {
+  if (locked) return;
+  stage.setPointerCapture(e.pointerId);
+  fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+});
+stage.addEventListener('pointermove', e => {
+  const f = fingers.get(e.pointerId);
+  if (!f || locked) return;
+  const others = [...fingers.entries()].filter(([id]) => id !== e.pointerId).map(([, p]) => p);
+  if (others.length === 0) {
+    S.x += e.clientX - f.x;
+    S.y += e.clientY - f.y;
+  } else {
+    const o = others[0];
+    const oldDist = Math.hypot(f.x - o.x, f.y - o.y) || 1;
+    const newDist = Math.hypot(e.clientX - o.x, e.clientY - o.y) || 1;
+    const ratio = newDist / oldDist;
+    const turn = Math.atan2(e.clientY - o.y, e.clientX - o.x) - Math.atan2(f.y - o.y, f.x - o.x);
+    // Le doigt immobile sert de pivot : ce point de l'image reste sous lui.
+    const px = o.x - innerWidth / 2, py = o.y - innerHeight / 2;
+    const vx = S.x - px, vy = S.y - py;
+    const cos = Math.cos(turn) * ratio, sin = Math.sin(turn) * ratio;
+    S.x = px + vx * cos - vy * sin;
+    S.y = py + vx * sin + vy * cos;
+    S.scale = Math.min(20, Math.max(0.02, S.scale * ratio));
+    S.rot += turn;
+  }
+  f.x = e.clientX; f.y = e.clientY;
+  place();
+});
+const release = e => { if (fingers.delete(e.pointerId)) save(); };
+stage.addEventListener('pointerup', release);
+stage.addEventListener('pointercancel', release);
+stage.addEventListener('wheel', e => {
+  if (locked) return;
+  e.preventDefault();
+  S.scale = Math.min(20, Math.max(0.02, S.scale * Math.exp(-e.deltaY / 500)));
+  place(); save();
+}, { passive: false });
+for (const t of ['gesturestart', 'gesturechange', 'dblclick']) document.addEventListener(t, e => e.preventDefault());
+
+/* ---------- Réglages ---------- */
+function syncUI() {
+  document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === S.mode)));
+  document.querySelectorAll('[data-ink]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.ink === S.ink)));
+  $('opacity').value = $('opacity2').value = S.opacity;
+  $('opacityOut').textContent = $('opacity2Out').textContent = S.opacity + ' %';
+  $('detail').value = S.detail; $('detailOut').textContent = S.detail;
+  $('tones').value = S.tones; $('tonesOut').textContent = S.tones;
+  $('detailRow').hidden = S.mode !== 'contours';
+  $('tonesRow').hidden = S.mode !== 'tons';
+  $('inks').style.display = S.mode === 'photo' ? 'none' : '';
+  $('grid').setAttribute('aria-pressed', String(S.grid));
+  $('flip').setAttribute('aria-pressed', String(S.flip));
+  layer.style.opacity = S.opacity / 100;
+}
+document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { S.mode = b.dataset.mode; syncUI(); paint(); save(); });
+document.querySelectorAll('[data-ink]').forEach(b => b.onclick = () => { S.ink = b.dataset.ink; syncUI(); paint(); save(); });
+for (const id of ['opacity', 'opacity2']) $(id).oninput = e => { S.opacity = +e.target.value; syncUI(); save(); };
+$('detail').oninput = e => { S.detail = +e.target.value; syncUI(); queuePaint(); save(); };
+$('tones').oninput = e => { S.tones = +e.target.value; syncUI(); queuePaint(); save(); };
+$('grid').onclick = () => { S.grid = !S.grid; syncUI(); paint(); save(); };
+$('flip').onclick = () => { S.flip = !S.flip; syncUI(); place(); save(); };
+$('center').onclick = () => { fit(); save(); };
+$('fold').onclick = () => {
+  const folded = $('panel').classList.toggle('folded');
+  document.querySelector('.more').style.display = folded ? 'none' : 'grid';
+};
+
+function setLocked(on) {
+  locked = on;
+  fingers.clear();
+  $('panel').hidden = on;
+  $('top').hidden = on;
+  $('drawbar').hidden = !on;
+  if (on) { $('toast').hidden = true; keepAwake(); }
+}
+$('lock').onclick = () => setLocked(true);
+$('unlock').onclick = () => setLocked(false);
+
+// Comparer le dessin au modèle : le calque disparaît tant que le bouton est maintenu.
+const peek = $('peek');
+peek.onpointerdown = e => { peek.setPointerCapture(e.pointerId); layer.hidden = true; };
+for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) peek.addEventListener(t, () => { layer.hidden = false; });
+peek.oncontextmenu = e => e.preventDefault();
+
+/* ---------- Caméra ---------- */
+let track = null;
+function notice(text) {
+  $('notice').hidden = !text;
+  $('noticeText').textContent = text || '';
+}
+async function startCamera() {
+  notice('');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    notice("La caméra n'est disponible qu'à une adresse en https. Ouvre l'appli depuis son lien https.");
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+    });
+    cam.srcObject = stream;
+    await cam.play().catch(() => {});
+    track = stream.getVideoTracks()[0];
+    track.addEventListener('ended', () => { if (!document.hidden) notice('La caméra a été coupée.'); });
+    cameraExtras();
+  } catch (err) {
+    if (err.name === 'NotAllowedError') notice("L'accès à la caméra est refusé. Autorise-le dans les réglages du site, puis réessaie.");
+    else if (err.name === 'NotFoundError') notice("Aucune caméra trouvée sur cet appareil.");
+    else if (err.name === 'NotReadableError') notice("Une autre appli utilise déjà la caméra. Ferme-la, puis réessaie.");
+    else notice("La caméra n'a pas démarré. Réessaie.");
+  }
+}
+function cameraExtras() {
+  const caps = track.getCapabilities ? track.getCapabilities() : {};
+  if (caps.zoom && caps.zoom.max > caps.zoom.min) {
+    const z = $('zoom');
+    z.min = caps.zoom.min; z.max = caps.zoom.max; z.step = caps.zoom.step || 0.1;
+    z.value = track.getSettings().zoom || caps.zoom.min;
+    $('zoomOut').textContent = 'x' + (+z.value).toFixed(1);
+    $('zoomRow').hidden = false;
+    z.oninput = () => {
+      $('zoomOut').textContent = 'x' + (+z.value).toFixed(1);
+      track.applyConstraints({ advanced: [{ zoom: +z.value }] }).catch(() => {});
+    };
+  }
+  if (caps.torch) {
+    const b = $('torch');
+    let on = false;
+    b.hidden = false;
+    b.setAttribute('aria-pressed', 'false');
+    b.onclick = () => {
+      on = !on;
+      track.applyConstraints({ advanced: [{ torch: on }] }).catch(() => { on = false; });
+      b.setAttribute('aria-pressed', String(on));
+    };
+  }
+}
+$('retry').onclick = startCamera;
+
+/* ---------- L'écran reste allumé pendant le dessin ---------- */
+let wake = null;
+async function keepAwake() {
+  try {
+    if ('wakeLock' in navigator && !wake && !document.hidden) {
+      wake = await navigator.wakeLock.request('screen');
+      wake.addEventListener('release', () => { wake = null; });
+    }
+  } catch {}
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    // Le téléphone coupe la caméra en arrière-plan : on termine proprement la vidéo.
+    stopRecording();
+    return;
+  }
+  keepAwake();
+  if (!track || track.readyState === 'ended') startCamera();
+});
+
+/* ---------- Vidéo de la séance ----------
+   On enregistre le flux brut de la caméra : le calque est un élément de la page posé
+   par-dessus, il ne peut donc pas apparaître dans le fichier. Chaque morceau est aussi
+   écrit dans IndexedDB pour survivre à une fermeture du navigateur en pleine séance. */
+const REC_TYPES = ['video/mp4;codecs=avc1.42E01F', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+let recorder = null, recChunks = [], recStart = 0, recTimer = 0, recWrites = Promise.resolve(), clip = null;
+
+const dbReady = new Promise((resolve, reject) => {
+  const r = indexedDB.open('calque', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('chunks', { autoIncrement: true });
+  r.onsuccess = () => resolve(r.result);
+  r.onerror = () => reject(r.error);
+}).catch(() => null);
+
+async function chunkStore(mode, action) {
+  const db = await dbReady;
+  if (!db) return null;
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('chunks', mode);
+    const req = action(tx.objectStore('chunks'));
+    tx.oncomplete = () => resolve(req.result);
+    tx.onerror = tx.onabort = () => reject(tx.error);
+  });
+}
+const clearChunks = () => chunkStore('readwrite', s => s.clear()).catch(() => {});
+
+const clock = seconds => {
+  const s = Math.floor(seconds), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, r = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${r}` : `${m}:${r}`;
+};
+
+function showRecording(on) {
+  for (const id of ['recA', 'recB']) $(id).classList.toggle('recording', on);
+  $('recALabel').textContent = on ? 'Arrêter' : 'Filmer';
+  $('recB').setAttribute('aria-label', on ? 'Arrêter la vidéo' : 'Filmer ma feuille');
+  $('recBadge').hidden = !on;
+}
+
+async function startRecording() {
+  if (!track || track.readyState !== 'live') { toast("La caméra n'est pas active : impossible de filmer."); return; }
+  const mimeType = REC_TYPES.find(t => MediaRecorder.isTypeSupported(t));
+  if (!mimeType) { toast("Ce navigateur ne sait pas enregistrer de vidéo."); return; }
+  await clearChunks();
+  recChunks = [];
+  recWrites = Promise.resolve();
+  store.set('calque.recType', mimeType);
+  try {
+    recorder = new MediaRecorder(cam.srcObject, { mimeType, videoBitsPerSecond: 2500000 });
+  } catch {
+    recorder = null;
+    toast("L'enregistrement n'a pas démarré. Réessaie.");
+    return;
+  }
+  recorder.ondataavailable = e => {
+    if (!e.data || !e.data.size) return;
+    recChunks.push(e.data);
+    recWrites = recWrites.then(() => chunkStore('readwrite', s => s.add(e.data))).catch(() => {});
+  };
+  recorder.onstop = finishRecording;
+  recorder.start(5000);
+  recStart = Date.now();
+  $('recTime').textContent = '0:00';
+  recTimer = setInterval(() => { $('recTime').textContent = clock((Date.now() - recStart) / 1000); }, 500);
+  showRecording(true);
+  keepAwake();
+  toast("C'est parti. Le calque n'apparaît pas sur la vidéo.");
+}
+
+function stopRecording() {
+  if (recorder && recorder.state !== 'inactive') recorder.stop();
+}
+
+async function finishRecording() {
+  const type = recorder.mimeType || store.get('calque.recType') || 'video/mp4';
+  recorder = null;
+  clearInterval(recTimer);
+  showRecording(false);
+  await recWrites;
+  if (!recChunks.length) { toast("La vidéo est vide : filme au moins quelques secondes."); return; }
+  showClip(new Blob(recChunks, { type }));
+  recChunks = [];
+}
+
+function toggleRecording() {
+  if (recorder) stopRecording(); else startRecording();
+}
+$('recA').onclick = toggleRecording;
+$('recB').onclick = toggleRecording;
+if (!window.MediaRecorder) { $('recA').hidden = true; $('recB').hidden = true; }
+
+/* ---------- Revoir et garder la vidéo ---------- */
+const clipVideo = $('clipVideo');
+function setRate(rate) {
+  clipVideo.playbackRate = rate;
+  document.querySelectorAll('[data-rate]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.rate === rate)));
+}
+document.querySelectorAll('[data-rate]').forEach(b => b.onclick = () => setRate(+b.dataset.rate));
+
+function clipFile() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  const ext = clip.blob.type.includes('mp4') ? 'mp4' : 'webm';
+  const name = `calque-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}h${p(d.getMinutes())}.${ext}`;
+  return new File([clip.blob], name, { type: clip.blob.type.split(';')[0] });
+}
+function clipDescribe() {
+  const mo = clip.blob.size / 1048576, size = mo < 10 ? mo.toFixed(1) : Math.round(mo);
+  const d = clipVideo.duration;
+  $('clipInfo').textContent = (Number.isFinite(d) ? clock(d) + ' · ' : '') + size + ' Mo';
+}
+function showClip(blob) {
+  clip = { blob, url: URL.createObjectURL(blob), kept: false };
+  clipVideo.src = clip.url;
+  setRate(1);
+  clipDescribe();
+  const file = clipFile();
+  $('clipShare').hidden = !(navigator.canShare && navigator.canShare({ files: [file] }));
+  $('clipDiscard').textContent = 'Supprimer';
+  $('clipDiscard').dataset.armed = 'false';
+  $('clip').hidden = false;
+}
+clipVideo.addEventListener('loadedmetadata', () => {
+  setRate(+document.querySelector('[data-rate][aria-pressed="true"]').dataset.rate);
+  clipDescribe();
+  // Certains navigateurs n'écrivent pas la durée : on la fait calculer en sautant à la fin.
+  if (clipVideo.duration === Infinity) {
+    clipVideo.currentTime = 1e101;
+    clipVideo.addEventListener('timeupdate', () => { clipVideo.currentTime = 0; clipDescribe(); }, { once: true });
+  }
+});
+function markKept() {
+  clip.kept = true;
+  $('clipDiscard').textContent = 'Fermer';
+  $('clipDiscard').dataset.armed = 'false';
+}
+$('clipSave').onclick = () => {
+  const a = document.createElement('a');
+  a.href = clip.url;
+  a.download = clipFile().name;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  markKept();
+  toast('Vidéo envoyée dans tes téléchargements.');
+};
+$('clipShare').onclick = async () => {
+  try {
+    await navigator.share({ files: [clipFile()] });
+    markKept();
+  } catch (err) {
+    if (err.name !== 'AbortError') toast("Le partage n'a pas marché. Utilise « Enregistrer la vidéo ».");
+  }
+};
+let disarm = 0;
+$('clipDiscard').onclick = async () => {
+  const b = $('clipDiscard');
+  if (!clip.kept && b.dataset.armed !== 'true') {
+    b.dataset.armed = 'true';
+    b.textContent = 'Toucher encore pour supprimer';
+    clearTimeout(disarm);
+    disarm = setTimeout(() => { b.dataset.armed = 'false'; b.textContent = 'Supprimer'; }, 4000);
+    return;
+  }
+  clearTimeout(disarm);
+  clipVideo.pause();
+  clipVideo.removeAttribute('src');
+  clipVideo.load();
+  URL.revokeObjectURL(clip.url);
+  clip = null;
+  $('clip').hidden = true;
+  await clearChunks();
+};
+
+// Une vidéo restée en base veut dire que la dernière séance n'a pas été fermée : on la rend.
+async function recoverClip() {
+  try {
+    const parts = await chunkStore('readonly', s => s.getAll());
+    if (parts && parts.length) {
+      showClip(new Blob(parts, { type: store.get('calque.recType') || 'video/mp4' }));
+      toast('Ta dernière vidéo a été retrouvée.');
+    }
+  } catch {}
+}
+
+let toastTimer = 0;
+function toast(text) {
+  const t = $('toast');
+  t.textContent = text; t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 3500);
+}
+
+/* ---------- Démarrage ---------- */
+syncUI();
+(async () => {
+  const saved = store.get('calque.image');
+  try {
+    await loadImage(saved || SAMPLE, { keepPlace: !!saved });
+    if (!saved) toast('Dessin d’exemple. Choisis ton image en haut.');
+  } catch {
+    store.del('calque.image');
+    await loadImage(SAMPLE);
+  }
+})();
+startCamera();
+keepAwake();
+recoverClip();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
