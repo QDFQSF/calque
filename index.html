@@ -32,7 +32,7 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 button:focus-visible, input:focus-visible { outline: 2px solid var(--pencil); outline-offset: 2px; }
 svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
-#stage { position: fixed; inset: 0; overflow: hidden; touch-action: none; background: #fbfaf5; }
+#stage { position: fixed; inset: 0; overflow: hidden; touch-action: none; background: var(--ink); }
 #cam { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 #layer { position: absolute; left: 50%; top: 50%; transform-origin: center; pointer-events: none; will-change: transform; }
 
@@ -192,7 +192,7 @@ input[type=range] { width: 100%; height: 36px; margin: 0; background: none; acce
 
 <div id="notice" role="alert" hidden>
   <p id="noticeText"></p>
-  <button class="pill" id="retry">Réessayer la caméra</button>
+  <button class="pill primary" id="retry">Activer la caméra</button>
 </div>
 <div id="toast" role="status" hidden></div>
 <input type="file" id="file" accept="image/*" hidden>
@@ -471,29 +471,61 @@ function notice(text) {
   $('notice').hidden = !text;
   $('noticeText').textContent = text || '';
 }
+const DENIED_HELP = "L'accès à la caméra est refusé. Sur Android : appui long sur l'icône Calque, Infos sur l'appli, Autorisations, Caméra. Sur iPhone : Réglages, Safari, Caméra. Autorise-le, puis touche le bouton.";
+let camAttempt = 0, camWatch = 0, camError = '';
+
+// La caméra ne compte comme active que si des images arrivent vraiment.
+const cameraIsLive = () => !!track && track.readyState === 'live' && !track.muted && cam.videoWidth > 0 && !cam.paused;
+
+async function cameraPermission() {
+  try { return (await navigator.permissions.query({ name: 'camera' })).state; } catch { return 'inconnue'; }
+}
+function stopCamera() {
+  if (cam.srcObject) cam.srcObject.getTracks().forEach(t => t.stop());
+  cam.srcObject = null;
+  track = null;
+}
+async function checkCamera() {
+  if (cameraIsLive() || document.hidden) { if (cameraIsLive()) notice(''); return; }
+  const state = await cameraPermission();
+  if (cameraIsLive()) return;
+  const detail = ` (code : ${camError || 'aucune image'}, autorisation : ${state})`;
+  notice((state === 'denied' ? DENIED_HELP : "La caméra ne s'affiche pas. Touche le bouton pour l'activer.") + detail);
+}
 async function startCamera() {
+  const attempt = ++camAttempt;
   notice('');
+  camError = '';
+  clearTimeout(camWatch);
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     notice("La caméra n'est disponible qu'à une adresse en https. Ouvre l'appli depuis son lien https.");
     return;
   }
+  // Sans réponse ni image après quelques secondes, on le dit au lieu de laisser un écran vide.
+  camWatch = setTimeout(checkCamera, 4000);
+  stopCamera();
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
     });
+    if (attempt !== camAttempt) { stream.getTracks().forEach(t => t.stop()); return; }
     cam.srcObject = stream;
-    await cam.play().catch(() => {});
     track = stream.getVideoTracks()[0];
-    track.addEventListener('ended', () => { if (!document.hidden) notice('La caméra a été coupée.'); });
+    track.addEventListener('ended', () => { if (!document.hidden && attempt === camAttempt) checkCamera(); });
     cameraExtras();
+    await cam.play().catch(err => { camError = err.name; });
   } catch (err) {
-    if (err.name === 'NotAllowedError') notice("L'accès à la caméra est refusé. Autorise-le dans les réglages du site, puis réessaie.");
+    if (attempt !== camAttempt) return;
+    clearTimeout(camWatch);
+    camError = err.name;
+    if (err.name === 'NotAllowedError') notice(DENIED_HELP);
     else if (err.name === 'NotFoundError') notice("Aucune caméra trouvée sur cet appareil.");
-    else if (err.name === 'NotReadableError') notice("Une autre appli utilise déjà la caméra. Ferme-la, puis réessaie.");
-    else notice("La caméra n'a pas démarré. Réessaie.");
+    else if (err.name === 'NotReadableError') notice("Une autre appli utilise déjà la caméra. Ferme-la, puis touche le bouton.");
+    else notice(`La caméra n'a pas démarré (code : ${err.name}). Touche le bouton pour réessayer.`);
   }
 }
+cam.addEventListener('playing', () => { if (cameraIsLive()) { clearTimeout(camWatch); notice(''); } });
 function cameraExtras() {
   const caps = track.getCapabilities ? track.getCapabilities() : {};
   if (caps.zoom && caps.zoom.max > caps.zoom.min) {
@@ -538,7 +570,8 @@ document.addEventListener('visibilitychange', () => {
     return;
   }
   keepAwake();
-  if (!track || track.readyState === 'ended') startCamera();
+  // Au retour d'arrière-plan, le flux peut sembler vivant sans donner d'image : on le relance.
+  if (!cameraIsLive()) startCamera();
 });
 
 /* ---------- Vidéo de la séance ----------
